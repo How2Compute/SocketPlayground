@@ -34,17 +34,41 @@ struct sockdata
     struct sockdata *next;
 };
 
-// TODO make this not global
-/* Multithreaded sock accept */
-    struct sockdata *connections;
-    int numConnections;
+// Variable to keep track of connections
+struct sockdata *remotes;
+// Should it log?
+int verbose;
 
 int main(int argc, char *argv[])
 {
-    if(argc != 2)
+    if(argc != 2 && argc != 3)
     {
-        fprintf(stderr, "Usage: ./test4_2 port\n");
+        fprintf(stderr, "Usage: ./test4_2 port [-v]\n");
         return -1;
+    }
+    
+    // If there was a third arguement, check if it was to set verbosity!
+    if(argc == 3)
+    {
+        // Check if the flag is valid
+        if(!strcmp(argv[2], "-v"))
+        {
+            // If it is -v set verbose to 1 AKA log out stuff
+            verbose = 1;
+        }
+        else
+        {
+            // Otherwise it should not be verbose
+            verbose = 0;
+            fprintf(stderr, "Unknown flag: %s\n", argv[2]);
+            // TODO rearrange error codes to allow for this (for example this gets -0x, connection errors get -1x etc)
+            return -100;
+        }
+    }
+    else
+    {
+        // As there wasent a flag specifying it should be verbose, make it quiet
+        verbose = 0;
     }
     
     struct addrinfo hints, *res;
@@ -66,36 +90,37 @@ int main(int argc, char *argv[])
     
     if((status = getaddrinfo(NULL, argv[1], &hints, &res)) != 0)
     {
-        // TODO log error
-        return -1;
+        fprintf(stderr, "Error fetching address: %s\n", gai_strerror(status));
+        return -2;
     }
     else
     {
         if((sock_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1)
         {
             perror("Error creating socket");
-            return -2;
+            return -3;
         }
         else
         {
             if(bind(sock_fd, res->ai_addr, res->ai_addrlen) == -1)
             {
                 perror("Error binding socket");
-                return -3;
+                return -4;
             }
             else
             {
                 if(listen(sock_fd, CONNECTIONBACKLOG) == -1)
                 {
                     perror("Error starting listener");
-                    return -4;
+                    return -5;
                 }
                 else
                 {
                     addr_len = sizeof(their_addr);
                     
-                    // Fire the acceptor thread
+                    // Fire the accepter thread
                     pthread_create(&accepterThread, NULL, ConnectionAccepter, (void *)(intptr_t)sock_fd);
+                    
                     while(1)
                     {
                         // Keep the program alive
@@ -143,7 +168,7 @@ void *ConnectionManager(void *vargp)
             }
             
             // And relay it to the other hosts
-            for(struct sockdata *connection = connections; connection != NULL; connection = connection->next)
+            for(struct sockdata *connection = remotes; connection != NULL; connection = connection->next)
             {
                 // Don't relay it to itself tho!
                 if(connection->fd != sock_fd)
@@ -164,18 +189,18 @@ void *ConnectionAccepter(void *vargp)
 {
     int sock_fd = (intptr_t)vargp;
     
-    struct sockdata *tempdata;
-    struct sockaddr_storage tempstorage;
-    socklen_t templen;
+    struct sockdata *connection;
+    struct sockaddr_storage connectionAddr;
+    socklen_t connectionLen;
     int temp_fd;
     
     printf("Accepter has started!\n");
     while(1)
     {
         
-        templen = sizeof(tempstorage);
+        connectionLen = sizeof(connectionAddr);
         
-        if((temp_fd = accept(sock_fd, (struct sockaddr *)&tempstorage, &templen)) == -1)
+        if((temp_fd = accept(sock_fd, (struct sockaddr *)&connectionAddr, &connectionLen)) == -1)
         {
             perror("Error while accepting connection");
             return NULL;
@@ -183,21 +208,22 @@ void *ConnectionAccepter(void *vargp)
         else
         {
             // Allocate some space for the struct
-            tempdata = calloc(1, sizeof(struct sockdata));
+            connection = calloc(1, sizeof(struct sockdata));
             
             // Set the data in the newly created struct
-            tempdata->fd = temp_fd;
-            tempdata->their_addr = tempstorage;
-            tempdata->addr_len = templen;
+            connection->fd = temp_fd;
+            connection->their_addr = connectionAddr;
+            connection->addr_len = connectionLen;
             
-            // Put it in the linked list of connections
-            tempdata->next = connections;
-            connections = tempdata;
+            // Put it in the linked list of remotes
+            connection->next = remotes;
+            remotes = connection;
             
-            // Create a thread to listen on the connection
+            // Create a thread to manage the connection
             pthread_t threadthing;
             pthread_create(&threadthing, NULL, ConnectionManager, (void *)(intptr_t)temp_fd);
             
+            // Log the connection
             fprintf(stdout, "Accepted connection!\n");
         }
     }
