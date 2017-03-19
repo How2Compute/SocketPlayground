@@ -147,24 +147,35 @@ void *ConnectionManager(void *vargp)
     {
         if((status = recv(sock_fd, buffer, len, 0)) == -1)
         {
-            perror("Error recieving data");
-            return NULL;
+            if(verbose)
+            {
+                perror("Error recieving data");
+            }
         }
-        // Check for recieved nothing case
+        // Invase no data was read...
         else if(status == 0)
         {
-            
+            if(verbose)
+            {
+                fprintf(stdout, "No data was read!\n");
+            }
         }
         else
         {
-            // Log recieve to console
-            printf("Recieved:\n%s\n", buffer);
+            if(verbose)
+            {
+                // Log what it has recieved to the console
+                printf("Recieved:\n%s\n", buffer);
+            }
             
-            // Send confirmation
+            // Attempt to send confirmation
             if(send(sock_fd, "V", sizeof(char) * strlen("V"), 0) == -1)
             {
-                perror("Error sending validation back");
-                return NULL;
+                if(verbose)
+                {
+                    perror("Error sending validation back");
+                }
+                // TODO Should it kill + remove it as a connection as the host could have disconnected?
             }
             
             // And relay it to the other hosts
@@ -176,7 +187,10 @@ void *ConnectionManager(void *vargp)
                     // Send/Relay the message to the client in question
                     if(send(connection->fd, buffer, len, 0) == -1)
                     {
-                        perror("Error relaying information");
+                        if(verbose)
+                        {
+                            perror("Error relaying information");
+                        }
                     }
                 }
             }
@@ -194,7 +208,12 @@ void *ConnectionAccepter(void *vargp)
     socklen_t connectionLen;
     int temp_fd;
     
-    printf("Accepter has started!\n");
+    if(verbose)
+    {
+        printf("Ready to accept connections!\n");
+    }
+    
+    // Do this forever (or until the program is killed with ctrl+c)
     while(1)
     {
         
@@ -202,8 +221,10 @@ void *ConnectionAccepter(void *vargp)
         
         if((temp_fd = accept(sock_fd, (struct sockaddr *)&connectionAddr, &connectionLen)) == -1)
         {
-            perror("Error while accepting connection");
-            return NULL;
+            if(verbose)
+            {
+                perror("Error while accepting connection");
+            }
         }
         else
         {
@@ -223,9 +244,14 @@ void *ConnectionAccepter(void *vargp)
             pthread_t threadthing;
             pthread_create(&threadthing, NULL, ConnectionManager, (void *)(intptr_t)temp_fd);
             
-            // Log the connection
-            fprintf(stdout, "Accepted connection!\n");
+            if(verbose)
+            {
+                // Log the connection
+                fprintf(stdout, "Accepted connection!\n");
+            }
         }
     }
+    
+    // To satisfy the compiler
     return NULL;
 }
